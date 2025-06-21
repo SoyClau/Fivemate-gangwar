@@ -13,9 +13,7 @@ shared_scripts {
 }
 
 client_scripts {
-    'client/main.lua',
-    'client/zones.lua',
-    'client/blips.lua'
+    'client/main.lua'
 }
 
 server_scripts {
