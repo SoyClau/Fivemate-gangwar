@@ -1,55 +1,193 @@
 -- ========================================
--- EVENTOS PERSONALIZADOS
--- ========================================
-
-RegisterNetEvent('gangwar:client:enteredZone')
-AddEventHandler('gangwar:client:enteredZone', function(gangWarData)
-    isInZone = true
-    
-    if Config.Debug then
-        print('[GangWar] Jugador entró a la zona')
-    end
-end)
-
-RegisterNetEvent('gangwar:client:exitedZone')
-AddEventHandler('gangwar:client:exitedZone', function()
-    isInZone = false
-    
-    if Config.Debug then
-        print('[GangWar] Jugador salió de la zona')
-    end
-end)-- ========================================
--- VARIABLES GLOBALES
+-- CLIENT/MAIN.LUA - VERSION FINAL CORREGIDA
 -- ========================================
 
 local ESX = exports['es_extended']:getSharedObject()
 local PlayerData = {}
 local currentGangWar = nil
 local isInZone = false
-local gangWarBlip = nil
+
+-- Variables para zona visual
+local activeZone = nil
+local zoneBlip = nil
+local visualThread = nil
 
 -- ========================================
--- EVENTOS ESX
+-- FUNCIONES DE ZONA VISUAL
 -- ========================================
 
-RegisterNetEvent('esx:playerLoaded')
-AddEventHandler('esx:playerLoaded', function(xPlayer)
-    PlayerData = xPlayer
-end)
+local function removeGangWarZone()
+    print('[GangWar] Removiendo zona visual...')
+    
+    lib.hideTextUI()
+    
+    if visualThread then
+        visualThread = nil
+        print('[GangWar] Thread de visualización detenido')
+    end
+    
+    if zoneBlip and DoesBlipExist(zoneBlip) then
+        RemoveBlip(zoneBlip)
+        zoneBlip = nil
+        print('[GangWar] Blip removido')
+    end
+    
+    if activeZone then
+        activeZone:remove()
+        activeZone = nil
+        print('[GangWar] Zona ox_lib removida')
+    end
+    
+    isInZone = false
+    print('[GangWar] Zona visual completamente removida')
+end
 
-RegisterNetEvent('esx:setJob')
-AddEventHandler('esx:setJob', function(job)
-    PlayerData.job = job
-end)
+local function createGangWarZone(data)
+    print('[GangWar] Creando zona visual...')
+    
+    if not data or not data.coords then
+        print('[GangWar] ERROR: Datos de zona inválidos')
+        return
+    end
+    
+    local coords = vector3(data.coords.x, data.coords.y, data.coords.z)
+    print('[GangWar] Coordenadas:', coords)
+    
+    -- Crear blip en el mapa
+    zoneBlip = AddBlipForCoord(coords.x, coords.y, coords.z)
+    if zoneBlip and zoneBlip ~= 0 then
+        SetBlipSprite(zoneBlip, 84)
+        SetBlipScale(zoneBlip, 1.5)
+        SetBlipColour(zoneBlip, data.canPoliceEnter and 3 or 1)
+        SetBlipAsShortRange(zoneBlip, false)
+        BeginTextCommandSetBlipName("STRING")
+        AddTextComponentString("Gang War Zone")
+        EndTextCommandSetBlipName(zoneBlip)
+        print('[GangWar] Blip creado')
+    end
+    
+    -- Crear zona de detección con ox_lib
+    activeZone = lib.zones.sphere({
+        coords = coords,
+        radius = Config.ZoneRadius,
+        debug = Config.Debug,
+        onEnter = function()
+            isInZone = true
+            lib.notify({
+                title = 'Gang War',
+                description = 'Has entrado en una zona de Gang War',
+                type = 'inform'
+            })
+        end,
+        onExit = function()
+            isInZone = false
+            lib.hideTextUI()
+            lib.notify({
+                title = 'Gang War',
+                description = 'Has salido de la zona de Gang War',
+                type = 'inform'
+            })
+        end
+    })
+    
+    -- Crear visualización (cilindro rojo/azul)
+    visualThread = CreateThread(function()
+        print('[GangWar] Thread de visualización iniciado')
+        
+        while currentGangWar and activeZone do -- VERIFICAR AMBOS
+            Wait(0)
+            
+            -- VERIFICACIÓN CRÍTICA
+            if not currentGangWar or not activeZone then
+                print('[GangWar] Condición de salida: currentGangWar o activeZone es null')
+                break
+            end
+            
+            local playerPos = GetEntityCoords(PlayerPedId())
+            local distance = #(playerPos - coords)
+            
+            if distance < 300.0 then
+                local color = currentGangWar.canPoliceEnter and 
+                    {r = 0, g = 0, b = 255, a = 80} or
+                    {r = 255, g = 0, b = 0, a = 80}
+                
+                -- Dibujar cilindro
+                DrawMarker(
+                    1,
+                    coords.x, coords.y, coords.z - 1.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    Config.ZoneRadius * 2.0, Config.ZoneRadius * 2.0, 100.0,
+                    color.r, color.g, color.b, color.a,
+                    false, true, 2, false, nil, nil, false
+                )
+                
+                -- TIMER CORREGIDO
+                if isInZone and distance < Config.ZoneRadius then
+                    if not currentGangWar.canPoliceEnter then
+                        -- USAR EL MISMO TIEMPO BASE QUE EL SERVIDOR
+                        local currentTime = GetGameTimer()
+                        local startTime = currentGangWar.startTime
+                        local timeElapsedMs = currentTime - startTime
+                        local totalTimeMs = 15 * 60 * 1000 -- 15 minutos exactos
+                        local remainingMs = math.max(0, totalTimeMs - timeElapsedMs)
+                        
+                        if remainingMs > 0 then
+                            local totalSecondsRemaining = math.floor(remainingMs / 1000)
+                            local minutes = math.floor(totalSecondsRemaining / 60)
+                            local seconds = totalSecondsRemaining % 60
+                            
+                            local timerText = string.format(
+                                '🔴 **GANG WAR ACTIVO**  \n⏱️ Tiempo restante: **%02d:%02d**  \n🚫 Zona restringida para policía',
+                                minutes,
+                                seconds
+                            )
+                            
+                            lib.showTextUI(timerText, {
+                                position = "top-center",
+                                icon = 'clock',
+                                style = {
+                                    borderRadius = 8,
+                                    backgroundColor = '#dc2626',
+                                    color = 'white'
+                                }
+                            })
+                        else
+                            lib.hideTextUI()
+                        end
+                        
+                    elseif currentGangWar.canPoliceEnter then
+                        lib.showTextUI('🔵 **ZONA LIBRE**  \n✅ Policía autorizada para intervenir', {
+                            position = "top-center",
+                            icon = 'shield-check',
+                            style = {
+                                borderRadius = 8,
+                                backgroundColor = '#2563eb',
+                                color = 'white'
+                            }
+                        })
+                    end
+                else
+                    lib.hideTextUI()
+                end
+            else
+                Wait(1000)
+                lib.hideTextUI()
+            end
+        end
+        
+        print('[GangWar] Thread de visualización terminado')
+        lib.hideTextUI()
+    end)
+    
+    print('[GangWar] Zona visual creada exitosamente')
+end
 
 -- ========================================
 -- FUNCIONES PRINCIPALES
 -- ========================================
 
---- Verificar si el jugador tiene permiso para gestionar gang wars
---- @return boolean
 local function hasPermission()
-    if not PlayerData.job then return false end
+    if not PlayerData or not PlayerData.job then return false end
     
     for _, job in pairs(Config.AuthorizedJobs) do
         if PlayerData.job.name == job then
@@ -59,181 +197,170 @@ local function hasPermission()
     return false
 end
 
---- Verificar si el jugador es policía
---- @return boolean
-local function isPolice()
-    if not PlayerData.job then return false end
-    
-    for _, job in pairs(Config.PoliceJobs) do
-        if PlayerData.job.name == job then
-            return true
-        end
-    end
-    return false
-end
-
---- Crear notificación usando ox_lib
---- @param message string
---- @param type string
---- @param duration number
-local function showNotification(message, type, duration)
-    lib.notify({
-        title = Config.NotificationTitle,
-        description = message,
-        type = type or 'inform',
-        duration = duration or 5000
-    })
-end
-
---- Mostrar información del gang war activo
-local function showGangWarInfo()
-    if not currentGangWar then
-        showNotification(Locale.notifications.no_active_gangwar, 'error')
+local function openGangWarMenu()
+    if not hasPermission() then
+        lib.notify({
+            title = 'Gang War',
+            description = 'No tienes permisos para usar este sistema',
+            type = 'error'
+        })
         return
     end
     
-    local timeElapsed = math.floor((GetGameTimer() - currentGangWar.startTime) / 60000)
-    local timeRemaining = Config.AutoEndTime - timeElapsed
+    local options = {
+        {
+            title = '🚩 Iniciar Gang War',
+            description = 'Crear nueva zona de conflicto',
+            icon = 'flag',
+            disabled = currentGangWar ~= nil,
+            onSelect = function()
+                local input = lib.inputDialog('Iniciar Gang War', {
+                    {
+                        type = 'select',
+                        label = 'Tipo de conflicto',
+                        options = {
+                            {value = 'territory', label = 'Disputa Territorial'},
+                            {value = 'revenge', label = 'Venganza'},
+                            {value = 'business', label = 'Conflicto de Negocios'}
+                        },
+                        required = true
+                    },
+                    {
+                        type = 'input',
+                        label = 'Descripción (opcional)',
+                        placeholder = 'Describe el motivo...',
+                        max = 100
+                    }
+                })
+                
+                if input then
+                    local coords = GetEntityCoords(PlayerPedId())
+                    TriggerServerEvent('gangwar:create', {
+                        coords = {x = coords.x, y = coords.y, z = coords.z},
+                        type = input[1],
+                        description = input[2] or ''
+                    })
+                end
+            end
+        },
+        {
+            title = '🏁 Finalizar Gang War',
+            description = 'Terminar conflicto actual',
+            icon = 'flag-checkered',
+            disabled = currentGangWar == nil,
+            onSelect = function()
+                local confirm = lib.alertDialog({
+                    header = 'Confirmar',
+                    content = '¿Finalizar el Gang War actual?',
+                    centered = true,
+                    cancel = true
+                })
+                if confirm == 'confirm' then
+                    TriggerServerEvent('gangwar:end')
+                end
+            end
+        }
+    }
     
-    local status = currentGangWar.canPoliceEnter and Locale.status.ending or Locale.status.active
-    
-    local alert = lib.alertDialog({
-        header = Locale.menu.status_title,
-        content = string.format([[
-**Estado:** %s
-
-**%s**
-
-**%s**
-
-**%s**
-        ]], 
-            status,
-            string.format(Locale.status.info_location, currentGangWar.coords.x, currentGangWar.coords.y),
-            string.format(Locale.status.info_time, timeElapsed),
-            timeRemaining > 0 and string.format(Locale.status.info_remaining, timeRemaining) or 'Finalizando...'
-        ),
-        centered = true,
-        cancel = true
+    lib.registerContext({
+        id = 'gangwar_menu',
+        title = '🔫 Gang War System',
+        options = options
     })
+    
+    lib.showContext('gangwar_menu')
 end
+
+-- ========================================
+-- EVENTOS ESX
+-- ========================================
+
+RegisterNetEvent('esx:playerLoaded')
+AddEventHandler('esx:playerLoaded', function(xPlayer)
+    PlayerData = xPlayer
+    TriggerServerEvent('gangwar:requestSync')
+end)
+
+RegisterNetEvent('esx:setJob')
+AddEventHandler('esx:setJob', function(job)
+    PlayerData.job = job
+end)
+
+-- ========================================
+-- EVENTOS DEL GANG WAR
+-- ========================================
+
+RegisterNetEvent('gangwar:sync')
+AddEventHandler('gangwar:sync', function(data)
+    print('[GangWar] Sincronizando:', data and 'CON DATOS' or 'SIN DATOS')
+    
+    -- LIMPIEZA FORZADA SIEMPRE
+    lib.hideTextUI()
+    removeGangWarZone()
+    Wait(500)
+    
+    currentGangWar = data
+    
+    if data then
+        createGangWarZone(data)
+        lib.notify({
+            title = 'Gang War',
+            description = 'Gang War activo detectado',
+            type = 'inform'
+        })
+    end
+end)
+
+RegisterNetEvent('gangwar:updateStatus')
+AddEventHandler('gangwar:updateStatus', function(canPoliceEnter)
+    print('[GangWar] Actualizando estado:', canPoliceEnter and 'AZUL' or 'ROJO')
+    
+    if currentGangWar then
+        currentGangWar.canPoliceEnter = canPoliceEnter
+        
+        -- Solo actualizar blip
+        if zoneBlip and DoesBlipExist(zoneBlip) then
+            SetBlipColour(zoneBlip, canPoliceEnter and 3 or 1)
+        end
+        
+        if canPoliceEnter then
+            lib.notify({
+                title = 'Gang War',
+                description = 'La policía ya puede intervenir',
+                type = 'inform'
+            })
+        end
+    end
+end)
+
+RegisterNetEvent('gangwar:notification')
+AddEventHandler('gangwar:notification', function(message, type)
+    lib.notify({
+        title = 'Gang War',
+        description = message,
+        type = type or 'inform'
+    })
+end)
 
 -- ========================================
 -- COMANDOS
 -- ========================================
 
-RegisterCommand(Config.MenuCommand, function()
-    if hasPermission() then
-        exports['FiveMate_Gangwar']:openGangWarMenu()
-    else
-        showNotification(Locale.notifications.no_permission, 'error')
-    end
+RegisterCommand('gangwar', function()
+    openGangWarMenu()
 end, false)
 
--- ========================================
--- KEYBINDING
--- ========================================
-
-RegisterKeyMapping(Config.MenuCommand, 'Gang War Menu', 'keyboard', Config.MenuKey)
+RegisterKeyMapping('gangwar', 'Abrir menú Gang War', 'keyboard', 'F6')
 
 -- ========================================
--- EVENTOS DEL SERVIDOR
--- ========================================
-
-RegisterNetEvent('gangwar:client:syncZone')
-AddEventHandler('gangwar:client:syncZone', function(gangWarData)
-    currentGangWar = gangWarData
-    
-    if gangWarData then
-        -- Crear zona usando el export del archivo zones.lua
-        exports['FiveMate_Gangwar']:createZone(gangWarData)
-        -- Crear blip usando el export del archivo blips.lua
-        exports['FiveMate_Gangwar']:createBlip(gangWarData)
-        
-        if Config.Debug then
-            print('[GangWar] Zona sincronizada:', json.encode(gangWarData))
-        end
-    else
-        -- Remover zona y blip
-        exports['FiveMate_Gangwar']:removeZone()
-        exports['FiveMate_Gangwar']:removeBlip()
-        
-        if Config.Debug then
-            print('[GangWar] Zona removida')
-        end
-    end
-end)
-
-RegisterNetEvent('gangwar:client:updateZoneStatus')
-AddEventHandler('gangwar:client:updateZoneStatus', function(canPoliceEnter, additionalData)
-    if currentGangWar then
-        currentGangWar.canPoliceEnter = canPoliceEnter
-        
-        -- Actualizar datos adicionales si se proporcionan
-        if additionalData then
-            if additionalData.manuallyEnded then
-                currentGangWar.manuallyEnded = true
-                currentGangWar.endTime = additionalData.endTime
-            end
-        end
-        
-        exports['FiveMate_Gangwar']:updateZoneColor(canPoliceEnter, additionalData)
-        exports['FiveMate_Gangwar']:updateBlipColor(canPoliceEnter)
-        
-        -- Si el jugador está en la zona, actualizar el timer
-        if isInZone then
-            local zoneSettings = Config.ZoneSettings[Config.ZoneType]
-            if zoneSettings and zoneSettings.showTimer then
-                exports['FiveMate_Gangwar']:stopGangWarTimer()
-                exports['FiveMate_Gangwar']:startGangWarTimer(currentGangWar)
-            end
-        end
-        
-        if canPoliceEnter then
-            showNotification(Locale.notifications.police_can_enter, 'inform')
-        end
-    end
-end)
-
-RegisterNetEvent('gangwar:client:notification')
-AddEventHandler('gangwar:client:notification', function(message, type, duration)
-    showNotification(message, type, duration)
-end)
-
-RegisterNetEvent('gangwar:client:dispatch')
-AddEventHandler('gangwar:client:dispatch', function(dispatchData)
-    if isPolice() then
-        exports['FiveMate_Gangwar']:showDispatch(dispatchData)
-    end
-end)
-
--- ========================================
--- EXPORTS
--- ========================================
-
-exports('hasPermission', hasPermission)
-exports('isPolice', isPolice)
-exports('getCurrentGangWar', function() return currentGangWar end)
-exports('isInZone', function() return isInZone end)
-exports('showGangWarInfo', showGangWarInfo)
-
--- ========================================
--- THREAD PRINCIPAL (simplificado ya que ox_lib maneja la detección)
+-- INICIALIZACIÓN
 -- ========================================
 
 CreateThread(function()
-    while true do
-        Wait(5000) -- Reducido a cada 5 segundos ya que ox_lib maneja la detección
-        
-        -- Solo mostrar información si hay gang war activo
-        if currentGangWar then
-            local timeElapsed = math.floor((GetGameTimer() - currentGangWar.startTime) / 60000)
-            local timeRemaining = Config.AutoEndTime - timeElapsed
-            
-            if timeRemaining > 0 and timeRemaining <= 5 then
-                -- Notificar cuando quedan pocos minutos
-                showNotification(string.format(Locale.notifications.time_remaining, timeRemaining), 'inform', 3000)
-            end
-        end
+    while not ESX or not PlayerData.job do
+        Wait(100)
     end
+    
+    TriggerServerEvent('gangwar:requestSync')
+    print('[GangWar] Cliente inicializado')
 end)
