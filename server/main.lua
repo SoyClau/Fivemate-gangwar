@@ -1,10 +1,11 @@
 -- ========================================
--- SERVER/MAIN.LUA - VERSIÓN NUEVA COMPLETA
+-- SERVER/MAIN.LUA - FINALIZACIÓN CORREGIDA
 -- ========================================
 
 local ESX = exports['es_extended']:getSharedObject()
 local activeGangWar = nil
 local autoEndTimer = nil
+local isEnding = false -- NUEVO: Control de finalización
 
 -- ========================================
 -- FUNCIONES AUXILIARES
@@ -51,11 +52,10 @@ local function sendDispatch(gangWarData)
     local locationName = "Zona de Los Santos"
     
     if Config.DispatchSystem == "origen_police" then
-        -- CORREGIR COORDS - convertir a vector3
         local coords = vector3(gangWarData.coords.x, gangWarData.coords.y, gangWarData.coords.z)
         
         exports['origen_police']:SendAlert({
-            coords = coords, -- Enviar como vector3
+            coords = coords,
             title = "Gang War detectado - Zona restringida",
             type = 'GENERAL',
             message = string.format("🚨 GANG WAR ACTIVO\n📍 %s\n⚠️ NO INTERVENIR", locationName),
@@ -66,6 +66,56 @@ local function sendDispatch(gangWarData)
         sendToPolice('gangwar:notification', 'Gang War detectado - Zona restringida para policía', 'error')
         print('[GangWar] Dispatch enviado via notificación directa')
     end
+end
+
+--- Enviar webhook de Discord
+--- @param title string
+--- @param description string
+--- @param color number
+--- @param fields table
+local function sendWebhook(title, description, color, fields)
+    if not ServerConfig or not ServerConfig.Webhook or not ServerConfig.Webhook.enabled then
+        print('[GangWar] Webhook deshabilitado o no configurado')
+        return
+    end
+    
+    if not ServerConfig.Webhook.url or ServerConfig.Webhook.url == "" then
+        print('[GangWar] ERROR: URL de webhook no configurada')
+        return
+    end
+    
+    local embed = {
+        {
+            title = title,
+            description = description,
+            color = color,
+            fields = fields or {},
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+            footer = {
+                text = "Gang War System",
+                icon_url = "https://cdn.discordapp.com/attachments/123456789/123456789/icon.png"
+            }
+        }
+    }
+    
+    local payload = {
+        username = ServerConfig.Webhook.botName or "Gang War System",
+        embeds = embed
+    }
+    
+    print('[GangWar] 📤 Enviando webhook:', title)
+    print('[GangWar] 🔗 URL:', ServerConfig.Webhook.url)
+    
+    PerformHttpRequest(ServerConfig.Webhook.url, function(err, text, headers)
+        if err == 200 or err == 204 then
+            print('[GangWar] ✅ Webhook enviado exitosamente')
+        else
+            print('[GangWar] ❌ Error en webhook. Código:', err)
+            print('[GangWar] Respuesta:', text)
+        end
+    end, 'POST', json.encode(payload), {
+        ['Content-Type'] = 'application/json'
+    })
 end
 
 -- ========================================
@@ -88,15 +138,20 @@ local function createGangWar(source, data)
         return
     end
     
-    -- USAR EL TIEMPO DEL CLIENTE PARA SINCRONIZACIÓN
-    local clientTime = GetGameTimer()
-
+    if isEnding then
+        TriggerClientEvent('gangwar:notification', source, 'Hay una finalización en proceso, espera...', 'error')
+        return
+    end
+    
+    -- OBTENER TIEMPO EXACTO AL MOMENTO DE CREACIÓN
+    local serverTime = GetGameTimer()
+    
     activeGangWar = {
         id = math.random(100000, 999999),
         coords = data.coords,
         type = data.type,
         description = data.description,
-        startTime = clientTime, -- USAR TIEMPO ACTUAL DEL SERVIDOR
+        startTime = serverTime, -- TIEMPO EXACTO DEL SERVIDOR
         creator = {
             source = source,
             name = xPlayer.getName(),
@@ -106,9 +161,9 @@ local function createGangWar(source, data)
     }
     
     print('[GangWar] Gang War creado con ID:', activeGangWar.id)
-    print('[GangWar] startTime establecido:', clientTime)
+    print('[GangWar] startTime SERVER establecido:', serverTime)
     
-    -- Sincronizar con todos los clientes
+    -- Sincronizar con todos los clientes INMEDIATAMENTE
     sendToAllClients('gangwar:sync', activeGangWar)
     
     -- Enviar dispatch a policía
@@ -117,14 +172,14 @@ local function createGangWar(source, data)
     -- Notificar al creador
     TriggerClientEvent('gangwar:notification', source, 'Gang War iniciado exitosamente', 'success')
     
-    -- Timer automático de 15 minutos
+    -- Timer automático de 15 minutos EXACTOS
     if autoEndTimer then
         ClearTimeout(autoEndTimer)
     end
     
-    autoEndTimer = SetTimeout(15 * 60 * 1000, function() -- 15 minutos exactos
-        if activeGangWar then
-            print('[GangWar] Tiempo cumplido - Policía puede intervenir')
+    autoEndTimer = SetTimeout(15 * 60 * 1000, function() -- 900,000 ms = 15 minutos exactos
+        if activeGangWar and not isEnding then
+            print('[GangWar] TIMER AUTOMÁTICO: 15 minutos cumplidos - Policía puede intervenir')
             activeGangWar.canPoliceEnter = true
             
             -- Notificar cambio de estado
@@ -132,10 +187,11 @@ local function createGangWar(source, data)
             sendToPolice('gangwar:notification', 'Gang War - Autorizado para intervenir', 'success')
             
             -- Auto-finalizar después de 1 minuto adicional
-            SetTimeout(1 * 60 * 1000, function() -- 1 minuto más
-                if activeGangWar then
-                    print('[GangWar] Auto-finalizando gang war')
+            SetTimeout(1 * 60 * 1000, function()
+                if activeGangWar and not isEnding then
+                    print('[GangWar] TIMER AUTOMÁTICO: Auto-finalizando gang war')
                     activeGangWar = nil
+                    isEnding = false
                     sendToAllClients('gangwar:sync', nil)
                     sendToAllClients('gangwar:notification', 'Gang War finalizado automáticamente', 'inform')
                 end
@@ -143,7 +199,7 @@ local function createGangWar(source, data)
         end
     end)
     
-    print('[GangWar] Timer de 15 minutos iniciado')
+    print('[GangWar] Timer de 15 minutos iniciado correctamente')
 end
 
 local function endGangWar(source)
@@ -152,10 +208,19 @@ local function endGangWar(source)
         return
     end
     
+    if isEnding then
+        TriggerClientEvent('gangwar:notification', source, 'Ya hay una finalización en proceso, espera a que termine...', 'error')
+        return
+    end
+    
+    if activeGangWar.canPoliceEnter then
+        TriggerClientEvent('gangwar:notification', source, 'El Gang War ya está finalizándose automáticamente...', 'error')
+        return
+    end
+    
     local xPlayer = ESX.GetPlayerFromId(source)
     if not xPlayer then return end
     
-    -- Verificar permisos
     if not hasPermission(xPlayer) and activeGangWar.creator.source ~= source then
         TriggerClientEvent('gangwar:notification', source, 'No tienes permisos', 'error')
         return
@@ -163,7 +228,10 @@ local function endGangWar(source)
     
     print('[GangWar] Gang War finalizado manualmente por:', xPlayer.getName())
     
-    -- Limpiar timer
+    -- MARCAR COMO EN PROCESO DE FINALIZACIÓN
+    isEnding = true
+    
+    -- Limpiar timer automático
     if autoEndTimer then
         ClearTimeout(autoEndTimer)
         autoEndTimer = nil
@@ -178,10 +246,13 @@ local function endGangWar(source)
     -- REMOVER COMPLETAMENTE DESPUÉS DE 1 MINUTO
     SetTimeout(1 * 60 * 1000, function()
         if activeGangWar then
-            print('[GangWar] Removiendo gang war completamente')
+            print('[GangWar] Removiendo gang war completamente tras finalización manual')
             activeGangWar = nil
-            sendToAllClients('gangwar:sync', nil) -- ESTO DEBERÍA LIMPIAR TODO
+            isEnding = false
+            sendToAllClients('gangwar:sync', nil)
             sendToAllClients('gangwar:notification', 'Zona de Gang War removida', 'inform')
+        else
+            isEnding = false -- Reset por seguridad
         end
     end)
 end
@@ -215,7 +286,6 @@ end)
 -- ========================================
 
 AddEventHandler('esx:playerLoaded', function(playerId, xPlayer)
-    -- Sincronizar gang war activo con jugador que se conecta
     SetTimeout(2000, function()
         TriggerClientEvent('gangwar:sync', playerId, activeGangWar)
     end)
@@ -233,6 +303,7 @@ RegisterCommand('gangwar_admin', function(source, args, rawCommand)
     
     if action == 'end' then
         if activeGangWar then
+            isEnding = false -- Force reset
             endGangWar(source)
         else
             TriggerClientEvent('gangwar:notification', source, 'No hay gang war activo', 'error')
@@ -240,10 +311,14 @@ RegisterCommand('gangwar_admin', function(source, args, rawCommand)
     elseif action == 'info' then
         if activeGangWar then
             print('[GangWar] Gang War activo:', json.encode(activeGangWar))
+            print('[GangWar] isEnding:', isEnding)
             TriggerClientEvent('gangwar:notification', source, 'Ver consola para información completa', 'inform')
         else
             TriggerClientEvent('gangwar:notification', source, 'No hay gang war activo', 'error')
         end
+    elseif action == 'reset' then
+        isEnding = false
+        TriggerClientEvent('gangwar:notification', source, 'Estado de finalización reseteado', 'success')
     end
 end, true)
 
@@ -253,6 +328,7 @@ end, true)
 
 exports('getActiveGangWar', function() return activeGangWar end)
 exports('isGangWarActive', function() return activeGangWar ~= nil end)
+exports('isGangWarEnding', function() return isEnding end)
 
 -- ========================================
 -- INICIALIZACIÓN
@@ -263,3 +339,26 @@ CreateThread(function()
     print('[GangWar] Trabajos autorizados:', json.encode(Config.AuthorizedJobs))
     print('[GangWar] Sistema de dispatch:', Config.DispatchSystem)
 end)
+
+RegisterCommand('test_webhook', function(source, args, rawCommand)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer or xPlayer.getGroup() ~= 'admin' then 
+        TriggerClientEvent('gangwar:notification', source, 'Solo administradores', 'error')
+        return 
+    end
+    
+    print('[GangWar] 🧪 Probando webhook...')
+    
+    sendWebhook(
+        "🧪 PRUEBA DE WEBHOOK",
+        "Esta es una prueba para verificar que el webhook funciona correctamente",
+        16711680, -- Color rojo
+        {
+            {name = "👤 Administrador", value = xPlayer.getName(), inline = true},
+            {name = "⏰ Fecha", value = os.date('%Y-%m-%d %H:%M:%S'), inline = true},
+            {name = "🆔 Servidor", value = GetConvar('sv_hostname', 'Servidor FiveM'), inline = false}
+        }
+    )
+    
+    TriggerClientEvent('gangwar:notification', source, 'Webhook de prueba enviado - revisa Discord', 'success')
+end, true)
