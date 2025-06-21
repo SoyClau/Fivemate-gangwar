@@ -1,5 +1,5 @@
 -- ========================================
--- GESTIÓN DE BLIPS
+-- GESTIÓN DE BLIPS - VERSIÓN SIMPLIFICADA
 -- ========================================
 
 local activeBlips = {}
@@ -11,174 +11,104 @@ local activeBlips = {}
 --- Crear blip para gang war
 --- @param gangWarData table
 local function createBlip(gangWarData)
+    print('[GangWar] createBlip llamado')
+    
+    if not gangWarData or not gangWarData.coords then
+        print('[GangWar] ERROR: Datos inválidos para blip')
+        return
+    end
+    
+    -- Remover blip anterior si existe
     if activeBlips.gangwar then
-        RemoveBlip(activeBlips.gangwar)
+        print('[GangWar] Removiendo blip anterior')
+        removeBlip()
     end
     
-    local coords = vector3(gangWarData.coords.x, gangWarData.coords.y, gangWarData.coords.z)
-    local color = gangWarData.canPoliceEnter and Config.BlipConfig.color_ending or Config.BlipConfig.color_active
-    
-    local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
-    
-    SetBlipSprite(blip, Config.BlipConfig.sprite)
-    SetBlipDisplay(blip, 4)
-    SetBlipScale(blip, Config.BlipConfig.scale)
-    SetBlipColour(blip, color)
-    SetBlipAsShortRange(blip, false)
-    
-    BeginTextCommandSetBlipName("STRING")
-    AddTextComponentString(Config.BlipConfig.label)
-    EndTextCommandSetBlipName(blip)
-    
-    -- Hacer que el blip parpadee si está activo
-    if not gangWarData.canPoliceEnter then
-        SetBlipFlashes(blip, true)
+    -- Validar coordenadas
+    local coords = gangWarData.coords
+    if not coords.x or not coords.y or not coords.z then
+        print('[GangWar] ERROR: Coordenadas inválidas para blip')
+        return
     end
     
-    activeBlips.gangwar = blip
+    print('[GangWar] Creando blip en:', coords.x, coords.y, coords.z)
     
-    if Config.Debug then
-        print('[GangWar] Blip creado en:', coords)
+    -- Crear blip con manejo de errores
+    local success, result = pcall(function()
+        local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
+        
+        if not blip or blip == 0 then
+            error("No se pudo crear el blip")
+        end
+        
+        -- Configurar blip con valores seguros
+        SetBlipSprite(blip, 84)
+        SetBlipDisplay(blip, 4)
+        SetBlipScale(blip, 1.5)
+        SetBlipColour(blip, gangWarData.canPoliceEnter and 3 or 1)
+        SetBlipAsShortRange(blip, false)
+        
+        -- Configurar nombre del blip
+        BeginTextCommandSetBlipName("STRING")
+        AddTextComponentString("Gang War Zone")
+        EndTextCommandSetBlipName(blip)
+        
+        return blip
+    end)
+    
+    if success and result then
+        activeBlips.gangwar = result
+        print('[GangWar] Blip creado exitosamente con ID:', result)
+    else
+        print('[GangWar] ERROR al crear blip:', result)
     end
 end
 
 --- Remover blip de gang war
 local function removeBlip()
+    print('[GangWar] removeBlip llamado')
+    
     if activeBlips.gangwar then
-        RemoveBlip(activeBlips.gangwar)
-        activeBlips.gangwar = nil
+        local success, error = pcall(function()
+            if DoesBlipExist(activeBlips.gangwar) then
+                RemoveBlip(activeBlips.gangwar)
+                print('[GangWar] Blip removido exitosamente')
+            else
+                print('[GangWar] El blip ya no existe')
+            end
+        end)
         
-        if Config.Debug then
-            print('[GangWar] Blip removido')
+        if not success then
+            print('[GangWar] ERROR al remover blip:', error)
         end
+        
+        activeBlips.gangwar = nil
+    else
+        print('[GangWar] No hay blip para remover')
     end
 end
 
 --- Actualizar color del blip
 --- @param canPoliceEnter boolean
 local function updateBlipColor(canPoliceEnter)
-    if activeBlips.gangwar then
-        local color = canPoliceEnter and Config.BlipConfig.color_ending or Config.BlipConfig.color_active
-        SetBlipColour(activeBlips.gangwar, color)
-        
-        -- Quitar parpadeo si la policía puede entrar
-        if canPoliceEnter then
-            SetBlipFlashes(activeBlips.gangwar, false)
-        end
-        
-        if Config.Debug then
-            print('[GangWar] Color de blip actualizado:', canPoliceEnter and 'azul' or 'rojo')
-        end
-    end
-end
-
---- Crear blip de dispatch para policía
---- @param dispatchData table
-local function createDispatchBlip(dispatchData)
-    if not exports.FiveMate_Gangwar:isPolice() then
-        return
-    end
+    print('[GangWar] updateBlipColor llamado:', canPoliceEnter)
     
-    local coords = vector3(dispatchData.coords.x, dispatchData.coords.y, dispatchData.coords.z)
-    local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
-    
-    SetBlipSprite(blip, dispatchData.sprite or 161)
-    SetBlipDisplay(blip, 4)
-    SetBlipScale(blip, dispatchData.scale or 1.2)
-    SetBlipColour(blip, dispatchData.color or 1)
-    SetBlipAsShortRange(blip, false)
-    SetBlipFlashes(blip, true)
-    
-    BeginTextCommandSetBlipName("STRING")
-    AddTextComponentString(dispatchData.label or 'Gang War Dispatch')
-    EndTextCommandSetBlipName(blip)
-    
-    -- Remover automáticamente después del tiempo especificado
-    if dispatchData.duration then
-        SetTimeout(dispatchData.duration, function()
-            if DoesBlipExist(blip) then
-                RemoveBlip(blip)
-            end
+    if activeBlips.gangwar and DoesBlipExist(activeBlips.gangwar) then
+        local success, error = pcall(function()
+            local color = canPoliceEnter and 3 or 1 -- Azul o Rojo
+            SetBlipColour(activeBlips.gangwar, color)
+            SetBlipFlashes(activeBlips.gangwar, not canPoliceEnter)
         end)
-    end
-    
-    -- Guardar referencia para actualizaciones
-    activeBlips.dispatch = blip
-    
-    if Config.Debug then
-        print('[GangWar] Blip de dispatch creado')
+        
+        if success then
+            print('[GangWar] Color de blip actualizado exitosamente')
+        else
+            print('[GangWar] ERROR al actualizar color de blip:', error)
+        end
+    else
+        print('[GangWar] No hay blip activo para actualizar')
     end
 end
-
---- Actualizar blip de dispatch
---- @param updateData table
-local function updateDispatchBlip(updateData)
-    if activeBlips.dispatch and DoesBlipExist(activeBlips.dispatch) then
-        if updateData.color then
-            SetBlipColour(activeBlips.dispatch, updateData.color)
-        end
-        
-        if updateData.label then
-            BeginTextCommandSetBlipName("STRING")
-            AddTextComponentString(updateData.label)
-            EndTextCommandSetBlipName(activeBlips.dispatch)
-        end
-        
-        -- Quitar parpadeo si la zona está libre
-        if updateData.color == 2 then -- Verde
-            SetBlipFlashes(activeBlips.dispatch, false)
-        end
-        
-        if Config.Debug then
-            print('[GangWar] Blip de dispatch actualizado')
-        end
-    end
-end
-
---- Crear blip temporal
---- @param coords vector3
---- @param duration number
---- @param sprite number
---- @param color number
---- @param label string
-local function createTemporaryBlip(coords, duration, sprite, color, label)
-    local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
-    
-    SetBlipSprite(blip, sprite or 1)
-    SetBlipDisplay(blip, 4)
-    SetBlipScale(blip, 1.0)
-    SetBlipColour(blip, color or 1)
-    SetBlipAsShortRange(blip, true)
-    
-    if label then
-        BeginTextCommandSetBlipName("STRING")
-        AddTextComponentString(label)
-        EndTextCommandSetBlipName(blip)
-    end
-    
-    -- Remover después del tiempo especificado
-    SetTimeout(duration or 30000, function()
-        if DoesBlipExist(blip) then
-            RemoveBlip(blip)
-        end
-    end)
-    
-    return blip
-end
-
--- ========================================
--- EVENTOS
--- ========================================
-
-RegisterNetEvent('gangwar:client:createDispatchBlip')
-AddEventHandler('gangwar:client:createDispatchBlip', function(dispatchData)
-    createDispatchBlip(dispatchData)
-end)
-
-RegisterNetEvent('gangwar:client:updateDispatchBlip')
-AddEventHandler('gangwar:client:updateDispatchBlip', function(updateData)
-    updateDispatchBlip(updateData)
-end)
 
 -- ========================================
 -- LIMPIAR BLIPS AL DESCARGAR RECURSO
@@ -186,11 +116,13 @@ end)
 
 AddEventHandler('onResourceStop', function(resourceName)
     if GetCurrentResourceName() == resourceName then
-        for _, blip in pairs(activeBlips) do
-            if DoesBlipExist(blip) then
+        print('[GangWar] Limpiando blips al descargar recurso')
+        for key, blip in pairs(activeBlips) do
+            if blip and DoesBlipExist(blip) then
                 RemoveBlip(blip)
             end
         end
+        activeBlips = {}
     end
 end)
 
@@ -201,6 +133,3 @@ end)
 exports('createBlip', createBlip)
 exports('removeBlip', removeBlip)
 exports('updateBlipColor', updateBlipColor)
-exports('createDispatchBlip', createDispatchBlip)
-exports('updateDispatchBlip', updateDispatchBlip)
-exports('createTemporaryBlip', createTemporaryBlip)
