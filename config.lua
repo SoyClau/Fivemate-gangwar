@@ -38,6 +38,16 @@ Config.PoliceJobs = {
 }
 
 -- ========================================
+-- CONFIGURACIÓN DE DISPATCH
+-- ========================================
+
+-- Sistema de dispatch a utilizar
+Config.DispatchSystem = "origen_police" -- Options: "cd_dispatch", "ps-dispatch", "linden_outlawalert", "qs-dispatch", "origen_police", "custom", "none"
+
+-- Activar/desactivar sistema de dispatch
+Config.UseDispatchSystem = true
+
+-- ========================================
 -- CONFIGURACIÓN DE ZONAS
 -- ========================================
 
@@ -148,19 +158,9 @@ Config.ZoneSettings = {
 
 -- Colores de las zonas (aumentada la opacidad)
 Config.ZoneColors = {
-    active = {r = 255, g = 0, b = 0, a = 100},    -- Rojo cuando está activo (más opaco)
-    ending = {r = 0, g = 0, b = 255, a = 100}     -- Azul cuando puede entrar policía (más opaco)
+    active = {r = 255, g = 0, b = 0, a = 180},    -- Rojo cuando está activo (más opaco)
+    ending = {r = 0, g = 0, b = 255, a = 180}     -- Azul cuando puede entrar policía (más opaco)
 }
-
--- ========================================
--- CONFIGURACIÓN DE DISPATCH PERSONALIZADO
--- ========================================
-
--- Sistema de dispatch a utilizar
-Config.DispatchSystem = 'default' -- Opciones: 'default', 'origen', 'custom'
--- 'default' = sistema interno
--- 'origen' = tu sistema personalizado con SendAlert:police
--- 'custom' = otro sistema (configurar manualmente)
 
 -- ========================================
 -- CONFIGURACIÓN DE COMANDOS
@@ -201,4 +201,4 @@ Config.BlipConfig = {
 -- CONFIGURACIÓN DE DEBUG
 -- ========================================
 
-Config.Debug = false -- Cambiar a true para mostrar mensajes de debug
+Config.Debug = true -- Cambiar a true para mostrar mensajes de debug
