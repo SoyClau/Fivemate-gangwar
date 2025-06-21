@@ -15,15 +15,13 @@ shared_scripts {
 client_scripts {
     'client/main.lua',
     'client/zones.lua',
-    'client/menu.lua',
-    'client/blips.lua',
-    'client/dispatch_ui.lua'
+    'client/blips.lua'
 }
 
 server_scripts {
     'server/main.lua',
-    'server/events.lua',
-    'server/dispatch.lua'
+    'server/dispatch.lua',
+    'server/config_server.lua'
 }
 
 dependencies {
