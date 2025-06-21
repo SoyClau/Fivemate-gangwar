@@ -5,6 +5,104 @@
 local ESX = exports['es_extended']:getSharedObject()
 
 -- ========================================
+-- FUNCIÓN PRINCIPAL DE DISPATCH
+-- ========================================
+
+--- Enviar alerta de dispatch para gang wars
+--- @param data table
+function SendDispatchAlert(data)
+    if not Config.UseDispatchSystem then 
+        return 
+    end
+    
+    -- CD Dispatch
+    if Config.DispatchSystem == "cd_dispatch" then
+        local dispatchData = {
+            message = data.message,
+            codeName = data.code or "10-90",
+            coords = data.coords,
+            blipSprite = data.blipSprite or 161,
+            blipColour = data.blipColour or 1,
+            blipScale = data.blipScale or 1.5,
+            blipLength = data.blipLength or 2,
+            blipFlash = data.blipFlash or false,
+            sound = data.sound and 1 or 0,
+            soundName = data.sound or "Lose_1st",
+            infoM = data.info or "Gang War detectado - Zona restringida"
+        }
+        exports['cd_dispatch']:SendDispatch(dispatchData)
+        
+    -- PS Dispatch
+    elseif Config.DispatchSystem == "ps-dispatch" then
+        exports['ps-dispatch']:CustomAlert({
+            coords = data.coords,
+            message = data.message,
+            dispatchCode = data.code or "10-90",
+            description = data.info or "Gang War detectado - Zona restringida",
+            radius = 0,
+            sprite = data.blipSprite or 161,
+            color = data.blipColour or 1,
+            scale = data.blipScale or 1.5,
+            length = data.blipLength or 2,
+        })
+        
+    -- Linden OutlawAlert
+    elseif Config.DispatchSystem == "linden_outlawalert" then
+        local coords = data.coords or vector3(0.0, 0.0, 0.0)
+        TriggerClientEvent('linden_outlawalert:triggerAlert', -1, {
+            type = data.type or 'gangwar',
+            coords = {x = coords.x, y = coords.y, z = coords.z},
+            text = data.message
+        })
+        
+    -- QS Dispatch
+    elseif Config.DispatchSystem == "qs-dispatch" then
+        exports['qs-dispatch']:CreateDispatchCall({
+            job = {'police'},
+            message = data.message,
+            coords = data.coords,
+            dispatchCode = data.code or "10-90",
+            description = data.info or "Gang War detectado - Zona restringida",
+            radius = 0,
+            sprite = data.blipSprite or 161,
+            color = data.blipColour or 1,
+            scale = data.blipScale or 1.5,
+            length = data.blipLength or 2,
+        })
+        
+    -- Origen Police
+    elseif Config.DispatchSystem == "origen_police" then
+        exports['origen_police']:SendAlert({
+            coords = data.coords,
+            title = data.info or "Gang War detectado - Zona restringida",
+            type = 'GENERAL',
+            message = data.message,
+            job = 'police',
+        })
+        
+    -- Sistema personalizado
+    elseif Config.DispatchSystem == "custom" then
+        -- SISTEMA DE DISPATCH PERSONALIZADO
+        -- Añade tu código de dispatch personalizado aquí
+        
+        -- Ejemplo:
+        -- TriggerEvent('tu-dispatch:enviarAlerta', data)
+        
+        -- Notificación básica para policía si no hay sistema
+        local xPlayers = ESX.GetExtendedPlayers()
+        for _, xPlayer in pairs(xPlayers) do
+            if isPoliceJob(xPlayer.job.name) then
+                TriggerClientEvent('gangwar:client:notification', xPlayer.source, data.message, 'error', 8000)
+            end
+        end
+    end
+    
+    if Config.Debug then
+        print('[GangWar] Dispatch enviado via ' .. Config.DispatchSystem)
+    end
+end
+
+-- ========================================
 -- FUNCIONES DE DISPATCH
 -- ========================================
 
@@ -15,55 +113,30 @@ local function sendDispatchToPolice(gangWarData)
         return
     end
     
-    local xPlayers = ESX.GetExtendedPlayers()
-    local policeCount = 0
+    local locationName = getLocationName(gangWarData.coords)
     
-    for _, xPlayer in pairs(xPlayers) do
-        if isPoliceJob(xPlayer.job.name) then
-            policeCount = policeCount + 1
-            
-            local playerCoords = xPlayer.getCoords(true)
-            local distance = #(playerCoords - vector3(gangWarData.coords.x, gangWarData.coords.y, gangWarData.coords.z))
-            
-            -- Preparar datos del dispatch
-            local dispatchData = {
-                id = gangWarData.id,
-                title = Config.DispatchConfig.title,
-                message = Locale.dispatch.message,
-                location = getLocationName(gangWarData.coords),
-                coords = gangWarData.coords,
-                distance = math.floor(distance),
-                time = os.date('%H:%M:%S'),
-                type = gangWarData.type,
-                priority = 'high',
-                units_needed = calculateUnitsNeeded(gangWarData),
-                restrictions = {
-                    canEnter = false,
-                    timeRemaining = gangWarData.duration
-                }
-            }
-            
-            -- Enviar dispatch al cliente
-            TriggerClientEvent('gangwar:client:dispatch', xPlayer.source, dispatchData)
-            
-            -- Crear blip temporal en el mapa
-            TriggerClientEvent('gangwar:client:createDispatchBlip', xPlayer.source, {
-                coords = gangWarData.coords,
-                sprite = 161, -- Icono de advertencia
-                color = 1,    -- Rojo
-                scale = 1.2,
-                label = 'Gang War - Zona Restringida',
-                duration = Config.DispatchConfig.blip_time
-            })
-            
-            if Config.Debug then
-                print(string.format('[GangWar] Dispatch enviado a %s (Distancia: %sm)', xPlayer.getName(), distance))
-            end
-        end
-    end
+    -- Preparar datos para el dispatch
+    local dispatchData = {
+        coords = gangWarData.coords,
+        message = string.format("🚨 GANG WAR DETECTADO\n📍 %s\n⚠️ ZONA RESTRINGIDA - NO INTERVENIR", locationName),
+        code = "10-90",
+        info = "Gang War detectado - Zona restringida para policía",
+        type = "gangwar",
+        blipSprite = 161,
+        blipColour = 1,
+        blipScale = 1.5,
+        blipLength = 5,
+        blipFlash = true,
+        sound = "Lose_1st"
+    }
+    
+    -- Enviar usando el sistema configurado
+    SendDispatchAlert(dispatchData)
     
     -- Log del dispatch
-    print(string.format('[GangWar] Dispatch enviado a %d oficiales de policía', policeCount))
+    if Config.Debug then
+        print(string.format('[GangWar] Dispatch enviado para Gang War ID: %s en %s', gangWarData.id, locationName))
+    end
 end
 
 --- Verificar si un trabajo es de policía
@@ -81,7 +154,7 @@ end
 --- Obtener nombre de ubicación basado en coordenadas
 --- @param coords table
 --- @return string
-local function getLocationName(coords)
+function getLocationName(coords)
     -- Ubicaciones conocidas en el mapa
     local locations = {
         {name = "Los Santos International Airport", coords = vector3(-1037.0, -2738.0, 13.8), radius = 500},
@@ -119,52 +192,36 @@ local function getLocationName(coords)
     end
 end
 
---- Calcular unidades necesarias basado en el tipo de gang war
---- @param gangWarData table
---- @return number
-local function calculateUnitsNeeded(gangWarData)
-    local baseUnits = 2
-    
-    if gangWarData.type == 'territory' then
-        return baseUnits + 2
-    elseif gangWarData.type == 'revenge' then
-        return baseUnits + 3
-    elseif gangWarData.type == 'business' then
-        return baseUnits + 1
-    else
-        return baseUnits
-    end
-end
-
 --- Enviar actualización de dispatch cuando la policía puede intervenir
 --- @param gangWarData table
 local function sendPoliceCanEnterDispatch(gangWarData)
-    local xPlayers = ESX.GetExtendedPlayers()
-    
-    for _, xPlayer in pairs(xPlayers) do
-        if isPoliceJob(xPlayer.job.name) then
-            local updateData = {
-                id = gangWarData.id,
-                title = '✅ AUTORIZACIÓN POLICIAL',
-                message = Locale.dispatch.can_enter,
-                location = getLocationName(gangWarData.coords),
-                coords = gangWarData.coords,
-                canEnter = true,
-                priority = 'medium'
-            }
-            
-            TriggerClientEvent('gangwar:client:dispatchUpdate', xPlayer.source, updateData)
-            
-            -- Actualizar blip a color verde
-            TriggerClientEvent('gangwar:client:updateDispatchBlip', xPlayer.source, {
-                coords = gangWarData.coords,
-                color = 2, -- Verde
-                label = 'Gang War - Intervención Autorizada'
-            })
-        end
+    if not Config.DispatchConfig.enabled then
+        return
     end
     
-    print('[GangWar] Dispatch de autorización enviado a la policía')
+    local locationName = getLocationName(gangWarData.coords)
+    
+    -- Preparar datos para el dispatch de autorización
+    local dispatchData = {
+        coords = gangWarData.coords,
+        message = string.format("✅ AUTORIZACIÓN POLICIAL\n📍 %s\n🟢 INTERVENCIÓN AUTORIZADA", locationName),
+        code = "10-22",
+        info = "Gang War - Policía autorizada para intervenir",
+        type = "gangwar_clear",
+        blipSprite = 161,
+        blipColour = 2, -- Verde
+        blipScale = 1.2,
+        blipLength = 3,
+        blipFlash = false,
+        sound = "CLICK_BACK"
+    }
+    
+    -- Enviar usando el sistema configurado
+    SendDispatchAlert(dispatchData)
+    
+    if Config.Debug then
+        print('[GangWar] Dispatch de autorización enviado a la policía')
+    end
 end
 
 --- Enviar dispatch personalizado
@@ -173,22 +230,21 @@ end
 --- @param coords table
 --- @param priority string
 local function sendCustomDispatch(title, message, coords, priority)
-    local xPlayers = ESX.GetExtendedPlayers()
+    local dispatchData = {
+        coords = coords,
+        message = string.format("%s\n%s", title, message),
+        code = priority == 'high' and "10-90" or "10-22",
+        info = title,
+        type = "custom",
+        blipSprite = 161,
+        blipColour = priority == 'high' and 1 or 3,
+        blipScale = 1.3,
+        blipLength = 4,
+        blipFlash = priority == 'high',
+        sound = priority == 'high' and "Lose_1st" or "CLICK_BACK"
+    }
     
-    for _, xPlayer in pairs(xPlayers) do
-        if isPoliceJob(xPlayer.job.name) then
-            local dispatchData = {
-                title = title,
-                message = message,
-                location = getLocationName(coords),
-                coords = coords,
-                priority = priority or 'medium',
-                time = os.date('%H:%M:%S')
-            }
-            
-            TriggerClientEvent('gangwar:client:dispatch', xPlayer.source, dispatchData)
-        end
-    end
+    SendDispatchAlert(dispatchData)
 end
 
 -- ========================================
@@ -211,65 +267,10 @@ AddEventHandler('gangwar:server:customDispatch', function(title, message, coords
 end)
 
 -- ========================================
--- INTEGRACIÓN CON SISTEMAS DE DISPATCH EXTERNOS
--- ========================================
-
---- Integración con cd_dispatch (si está disponible)
-local function sendCDDispatch(gangWarData)
-    if GetResourceState('cd_dispatch') == 'started' then
-        local data = exports['cd_dispatch']:GetPlayerInfo()
-        
-        TriggerEvent('cd_dispatch:AddNotification', {
-            job_table = Config.PoliceJobs,
-            coords = gangWarData.coords,
-            title = Config.DispatchConfig.title,
-            message = Locale.dispatch.message .. '\n' .. Locale.dispatch.zone_info,
-            flash = true,
-            unique_id = tostring(gangWarData.id),
-            blip = {
-                sprite = 161,
-                scale = 1.2,
-                colour = 1,
-                flashes = true,
-                text = 'Gang War Zone'
-            }
-        })
-        
-        if Config.Debug then
-            print('[GangWar] Dispatch enviado via cd_dispatch')
-        end
-    end
-end
-
---- Integración con qs-dispatch (si está disponible)
-local function sendQSDispatch(gangWarData)
-    if GetResourceState('qs-dispatch') == 'started' then
-        exports['qs-dispatch']:CreateDispatchCall({
-            job = Config.PoliceJobs,
-            callLocation = gangWarData.coords,
-            callCode = { name = 'Gang War', color = 1 },
-            message = Locale.dispatch.message,
-            flashes = true,
-            image = nil,
-            blip = {
-                sprite = 161,
-                scale = 1.2,
-                colour = 1,
-                flashes = true,
-                text = 'Gang War Zone'
-            }
-        })
-        
-        if Config.Debug then
-            print('[GangWar] Dispatch enviado via qs-dispatch')
-        end
-    end
-end
-
--- ========================================
 -- EXPORTS
 -- ========================================
 
+exports('SendDispatchAlert', SendDispatchAlert)
 exports('sendDispatchToPolice', sendDispatchToPolice)
 exports('sendPoliceCanEnterDispatch', sendPoliceCanEnterDispatch)
 exports('sendCustomDispatch', sendCustomDispatch)
