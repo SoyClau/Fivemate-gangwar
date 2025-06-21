@@ -34,3 +34,11 @@ ServerConfig.Security = {
     -- Verificar si el jugador tiene el trabajo requerido al crear
     strictJobCheck = true
 }
+
+-- ========================================
+-- DEBUG WEBHOOK
+-- ========================================
+
+print('[GangWar] ServerConfig cargado')
+print('[GangWar] Webhook habilitado:', ServerConfig.Webhook.enabled)
+print('[GangWar] Webhook URL configurada:', ServerConfig.Webhook.url and 'SÍ' or 'NO')
