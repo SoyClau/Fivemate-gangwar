@@ -21,22 +21,6 @@ ServerConfig.Webhook = {
 }
 
 -- ========================================
--- CONFIGURACIÓN DE DISPATCH POR SISTEMA
--- ========================================
-
-ServerConfig.DispatchEvents = {
-    ['origen'] = {
-        eventName = "SendAlert:police",
-        enabled = true
-    },
-    ['custom'] = {
-        eventName = "tu:evento:personalizado", -- Cambiar por tu evento
-        enabled = false
-    }
-    -- 'default' usa el sistema interno, no necesita configuración
-}
-
--- ========================================
 -- CONFIGURACIÓN DE SEGURIDAD
 -- ========================================
 
