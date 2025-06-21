@@ -158,8 +158,8 @@ Config.ZoneSettings = {
 
 -- Colores de las zonas (aumentada la opacidad)
 Config.ZoneColors = {
-    active = {r = 255, g = 0, b = 0, a = 180},    -- Rojo cuando está activo (más opaco)
-    ending = {r = 0, g = 0, b = 255, a = 180}     -- Azul cuando puede entrar policía (más opaco)
+    active = {r = 255, g = 0, b = 0, a = 100},    -- Rojo cuando está activo (más opaco)
+    ending = {r = 0, g = 0, b = 255, a = 100}     -- Azul cuando puede entrar policía (más opaco)
 }
 
 -- ========================================
@@ -201,4 +201,4 @@ Config.BlipConfig = {
 -- CONFIGURACIÓN DE DEBUG
 -- ========================================
 
-Config.Debug = true -- Cambiar a true para mostrar mensajes de debug
+Config.Debug = true -- ACTIVAR PARA VER QUÉ ESTÁ PASANDO
